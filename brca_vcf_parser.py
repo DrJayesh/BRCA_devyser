@@ -45,10 +45,27 @@ def process_vcf_file(vcf_path, output_dir):
     base_name = os.path.splitext(os.path.basename(vcf_path))[0]
     output_path = os.path.join(output_dir, base_name + ".xlsx")
 
-    # Read the VCF, skipping the first 25 lines.
-    # The 26th line should be the header (#CHROM ...), which pandas will use as column names.
+    # Determine how many header/meta lines to skip by locating the line that
+    # starts with "#CHROM". VCF files may contain a variable number of meta
+    # lines, so relying on a fixed count (e.g. 25) can cause parsing errors.
+    header_line = None
     try:
-        df = pd.read_csv(vcf_path, sep='\t', skiprows=25, dtype=str)
+        with open(vcf_path, "r") as f:
+            for i, line in enumerate(f):
+                if line.startswith("#CHROM"):
+                    header_line = i
+                    break
+    except OSError as e:
+        print(f"Error opening {vcf_path}: {e}", file=sys.stderr)
+        return
+
+    if header_line is None:
+        print(f"Error: Could not locate header line in {vcf_path}", file=sys.stderr)
+        return
+
+    # Read the VCF using the discovered header line.
+    try:
+        df = pd.read_csv(vcf_path, sep='\t', skiprows=header_line, dtype=str)
     except Exception as e:
         print(f"Error reading {vcf_path}: {e}", file=sys.stderr)
         return
