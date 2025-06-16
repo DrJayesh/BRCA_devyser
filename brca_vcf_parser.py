@@ -7,12 +7,15 @@ and writes the results into Excel files inside an "outputExcel" subfolder that
 is created in the parent directory of the folder containing the VCFs.
 
 For each VCF:
-1. Skip the first 25 lines (metadata).
+1. Skip the metadata lines to locate the "#CHROM" header.
 2. Read the remaining tab-separated table (header + variant rows).
 3. Split the INFO column into separate columns for AF, CLINVARPAT, RNA_ACC, and CONSEQUENCES.
 4. Add a "VariantID" column in the format "chr-pos-ref-alt".
 5. Save the final DataFrame to an Excel file in ../outputExcel/ relative to the
    provided folder.
+6. Add a "VCF_COUNT" column showing in how many VCF files the variant occurs as "<count>/<total files>".
+7. Save the final DataFrame to an Excel file in ./<input_folder>/outputExcel/.
+
 
 Usage:
     python brca_vcf_parser.py
@@ -39,9 +42,46 @@ def parse_info(info_str):
             info_dict[key] = val
     return info_dict
 
-def process_vcf_file(vcf_path, output_dir):
+def build_variant_counts(vcf_files, folder):
+    """Return a mapping of VariantID to the number of VCF files in which that
+    variant appears."""
+    counts = {}
+    for filename in vcf_files:
+        vcf_path = os.path.join(folder, filename)
+        header_line = None
+        try:
+            with open(vcf_path, "r") as f:
+                for i, line in enumerate(f):
+                    if line.startswith("#CHROM"):
+                        header_line = i
+                        break
+        except OSError:
+            continue
+        if header_line is None:
+            continue
+        try:
+            df = pd.read_csv(vcf_path, sep='\t', skiprows=header_line, dtype=str)
+        except Exception:
+            continue
+        if "#CHROM" in df.columns:
+            df.rename(columns={"#CHROM": "CHROM"}, inplace=True)
+        required = ["CHROM", "POS", "REF", "ALT"]
+        if not all(col in df.columns for col in required):
+            continue
+        variant_ids = (
+            df["CHROM"].astype(str) + "-" + df["POS"].astype(str) + "-" +
+            df["REF"].astype(str) + "-" + df["ALT"].astype(str)
+        )
+        for vid in set(variant_ids):
+            counts[vid] = counts.get(vid, 0) + 1
+    return counts
+
+def process_vcf_file(vcf_path, output_dir, variant_counts, total_files):
     """
-    Read a VCF at vcf_path, parse it, and write to an Excel file in output_dir.
+    Read a VCF at ``vcf_path``, parse it, and write to an Excel file in
+    ``output_dir``. ``variant_counts`` should be a mapping of ``VariantID`` to
+    the number of VCF files in the batch that contain that variant. ``total_files``
+    is the total number of VCF files being processed.
     """
     # Derive a base name for the output Excel (e.g., "sample.vcf" -> "sample.xlsx")
     base_name = os.path.splitext(os.path.basename(vcf_path))[0]
@@ -92,7 +132,14 @@ def process_vcf_file(vcf_path, output_dir):
     df['AF'] = pd.to_numeric(df['AF'], errors='coerce')
 
     # Create the "VariantID" column as "chr-pos-ref-alt"
-    df["VariantID"] = df["CHROM"].astype(str) + "-" + df["POS"].astype(str) + "-" + df["REF"].astype(str) + "-" + df["ALT"].astype(str)
+    df["VariantID"] = (
+        df["CHROM"].astype(str) + "-" + df["POS"].astype(str) + "-" +
+        df["REF"].astype(str) + "-" + df["ALT"].astype(str)
+    )
+
+    df["VCF_COUNT"] = df["VariantID"].apply(
+        lambda vid: f"{variant_counts.get(vid, 0)}/{total_files}"
+    )
 
     # Write to Excel
     try:
@@ -120,9 +167,12 @@ def main():
         print("No VCF files found in the specified folder.")
         sys.exit(0)
 
+    # First collect how many files contain each VariantID
+    variant_counts = build_variant_counts(vcf_files, folder)
+
     for filename in vcf_files:
         vcf_path = os.path.join(folder, filename)
-        process_vcf_file(vcf_path, output_dir)
+        process_vcf_file(vcf_path, output_dir, variant_counts, len(vcf_files))
 
 if __name__ == "__main__":
     main()
