@@ -15,6 +15,8 @@ For each VCF:
    provided folder.
 6. Add a "VCF_COUNT" column showing in how many VCF files the variant occurs as "<count>/<total files>".
 7. Save the final DataFrame to an Excel file in ./<input_folder>/outputExcel/.
+8. Automatically run GeneBe annotation on these Excel files and store the
+   results in a ``gnb_anno`` folder alongside ``outputExcel``.
 
 
 Usage:
@@ -24,6 +26,7 @@ Usage:
 import os
 import sys
 import pandas as pd
+import annotate_genebe
 
 def parse_info(info_str):
     """
@@ -173,6 +176,9 @@ def main():
     for filename in vcf_files:
         vcf_path = os.path.join(folder, filename)
         process_vcf_file(vcf_path, output_dir, variant_counts, len(vcf_files))
+
+    # Automatically annotate the produced Excel files using GeneBe
+    annotate_genebe.annotate_folder(output_dir)
 
 if __name__ == "__main__":
     main()
