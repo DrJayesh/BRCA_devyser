@@ -3,15 +3,19 @@
 brca_vcf_parser.py
 
 This script parses all VCF files in a given folder, extracts relevant fields,
-and writes the results into Excel files in an "outputExcel" subfolder.
+and writes the results into Excel files inside an "outputExcel" subfolder that
+is created in the parent directory of the folder containing the VCFs.
 
 For each VCF:
 1. Skip the metadata lines to locate the "#CHROM" header.
 2. Read the remaining tab-separated table (header + variant rows).
 3. Split the INFO column into separate columns for AF, CLINVARPAT, RNA_ACC, and CONSEQUENCES.
 4. Add a "VariantID" column in the format "chr-pos-ref-alt".
-5. Add a "VCF_COUNT" column showing in how many VCF files the variant occurs as "<count>/<total files>".
-6. Save the final DataFrame to an Excel file in ./<input_folder>/outputExcel/.
+5. Save the final DataFrame to an Excel file in ../outputExcel/ relative to the
+   provided folder.
+6. Add a "VCF_COUNT" column showing in how many VCF files the variant occurs as "<count>/<total files>".
+7. Save the final DataFrame to an Excel file in ./<input_folder>/outputExcel/.
+
 
 Usage:
     python brca_vcf_parser.py
@@ -152,8 +156,9 @@ def main():
         print(f"Error: '{folder}' is not a valid directory.", file=sys.stderr)
         sys.exit(1)
 
-    # Create the output directory inside the given folder
-    output_dir = os.path.join(folder, "outputExcel")
+    # Create the output directory in the parent directory of the given folder
+    parent_dir = os.path.dirname(os.path.abspath(folder))
+    output_dir = os.path.join(parent_dir, "outputExcel")
     os.makedirs(output_dir, exist_ok=True)
 
     # Process each .vcf (or .VCF) file in the folder
