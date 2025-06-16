@@ -86,7 +86,7 @@ def process_vcf_file(vcf_path, output_dir):
     # Append the new columns to the DataFrame
     df = pd.concat([df, info_expanded], axis=1)
 
-    # Convert AF (column K) from string to float
+    # Convert the AF value from string to a numeric type
     df['AF'] = pd.to_numeric(df['AF'], errors='coerce')
 
     # Create the "VariantID" column as "chr-pos-ref-alt"
