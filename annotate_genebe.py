@@ -3,6 +3,7 @@ import os
 import sys
 import pandas as pd
 import genebe as gnb
+from datetime import date
 
 # 1) Either set credentials once…
 # gnb.set_credentials(username="tgarg2@jhu.edu", api_key="ak-xo8hVORNe1bHu3oqei8PKtxiI")
@@ -17,6 +18,21 @@ def _build_variant_df(df: pd.DataFrame) -> pd.DataFrame:
         "ref": df["REF"].astype(str),
         "alt": df["ALT"].astype(str),
     })
+
+
+ROOT_ANNOTATION_FILE = os.path.join(os.path.dirname(__file__), "annotated_variants.xlsx")
+
+
+def _load_local_annotations() -> pd.DataFrame:
+    """Return the local annotation DataFrame if present, else an empty DataFrame."""
+    if os.path.exists(ROOT_ANNOTATION_FILE):
+        return pd.read_excel(ROOT_ANNOTATION_FILE, engine="openpyxl")
+    return pd.DataFrame()
+
+
+def _save_local_annotations(df: pd.DataFrame) -> None:
+    """Write ``df`` to the persistent annotation Excel file."""
+    df.to_excel(ROOT_ANNOTATION_FILE, index=False, engine="openpyxl")
 
 
 def annotate_folder(input_folder: str) -> None:
@@ -42,19 +58,49 @@ def annotate_folder(input_folder: str) -> None:
 
     unique_vars = pd.concat(all_var_dfs, ignore_index=True).drop_duplicates().reset_index(drop=True)
 
-    # Annotate the unique variants via GeneBe
-    annotated_unique = gnb.annotate(
-        unique_vars,
-        genome="hg19",
-        use_ensembl=False,
-        use_refseq=True,
-        flatten_consequences=True,
-        output_format="dataframe",
-        use_netrc=False,
-        username="tgarg2@jhu.edu",
-        api_key="ak-xo8hVORNe1bHu3oqei8PKtxiI",
-        batch_size=500,
-    )
+    local_ann = _load_local_annotations()
+
+    merge_cols = ["chr", "pos", "ref", "alt"]
+    to_annotate = unique_vars
+    annotated_unique = pd.DataFrame()
+
+    if not local_ann.empty:
+        annotated_unique = unique_vars.merge(local_ann, on=merge_cols, how="left")
+        to_annotate = annotated_unique[annotated_unique.isna().any(axis=1)][merge_cols]
+        annotated_unique = annotated_unique.dropna(axis=0, subset=local_ann.columns.difference(merge_cols), how="all")
+
+    if not to_annotate.empty:
+        new_ann = gnb.annotate(
+            to_annotate,
+            genome="hg19",
+            use_ensembl=False,
+            use_refseq=True,
+            flatten_consequences=True,
+            output_format="dataframe",
+            use_netrc=False,
+            username="tgarg2@jhu.edu",
+            api_key="ak-xo8hVORNe1bHu3oqei8PKtxiI",
+            batch_size=500,
+        )
+        new_ann["FIRST_ANNOTATED"] = date.today().isoformat()
+        local_ann = pd.concat([local_ann, new_ann], ignore_index=True)
+        local_ann.drop_duplicates(subset=merge_cols, keep="first", inplace=True)
+        _save_local_annotations(local_ann)
+        if annotated_unique.empty:
+            annotated_unique = new_ann
+        else:
+            annotated_unique = annotated_unique.merge(new_ann, on=merge_cols, how="left", suffixes=("", "_new"))
+            # Combine newly annotated columns if they were previously missing
+            for col in new_ann.columns:
+                if col in merge_cols:
+                    continue
+                if col not in annotated_unique.columns:
+                    annotated_unique[col] = annotated_unique[col + "_new"]
+                annotated_unique[col] = annotated_unique[col].fillna(annotated_unique[col + "_new"])
+                if col + "_new" in annotated_unique.columns:
+                    annotated_unique.drop(columns=[col + "_new"], inplace=True)
+    else:
+        annotated_unique = unique_vars.merge(local_ann, on=merge_cols, how="left")
 
     output_folder = os.path.join(os.path.dirname(os.path.abspath(input_folder)), "gnb_anno")
     os.makedirs(output_folder, exist_ok=True)
