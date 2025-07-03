@@ -14,7 +14,9 @@ def _build_variant_df(df: pd.DataFrame) -> pd.DataFrame:
     """Return a DataFrame with columns chr,pos,ref,alt from a parsed Excel file."""
     return pd.DataFrame({
         "chr": df["CHROM"].astype(str).str.replace("chr", "", case=False),
-        "pos": df["POS"].astype(int),
+        # Treat ``pos`` as a string to avoid dtype mismatches when merging with
+        # stored annotations that may have been saved with a different type.
+        "pos": df["POS"].astype(str),
         "ref": df["REF"].astype(str),
         "alt": df["ALT"].astype(str),
     })
@@ -26,7 +28,20 @@ ROOT_ANNOTATION_FILE = os.path.join(os.path.dirname(__file__), "annotated_varian
 def _load_local_annotations() -> pd.DataFrame:
     """Return the local annotation DataFrame if present, else an empty DataFrame."""
     if os.path.exists(ROOT_ANNOTATION_FILE):
-        return pd.read_excel(ROOT_ANNOTATION_FILE, engine="openpyxl")
+        df = pd.read_excel(ROOT_ANNOTATION_FILE, engine="openpyxl")
+        # Ensure merge columns use consistent dtypes. Excel files may store the
+        # chromosome column as an integer which triggers dtype mismatch errors
+        # when merging with ``unique_vars`` where ``chr`` is a string.  Cast all
+        # merge columns to string here so subsequent merges succeed regardless of
+        # how the data was stored.
+        for col in ["chr", "pos", "ref", "alt"]:
+            if col in df.columns:
+                df[col] = df[col].astype(str)
+        # Drop any ``chr`` prefix so the column matches the format produced by
+        # ``_build_variant_df``.
+        if "chr" in df.columns:
+            df["chr"] = df["chr"].str.replace("chr", "", case=False)
+        return df
     return pd.DataFrame()
 
 
@@ -82,6 +97,12 @@ def annotate_folder(input_folder: str) -> None:
             api_key="ak-xo8hVORNe1bHu3oqei8PKtxiI",
             batch_size=500,
         )
+        # Normalise dtypes of merge columns returned by GeneBe. They may come
+        # back as integers which would again cause merge errors when persisting
+        # annotations across runs.
+        for col in merge_cols:
+            new_ann[col] = new_ann[col].astype(str)
+        new_ann["chr"] = new_ann["chr"].str.replace("chr", "", case=False)
         new_ann["FIRST_ANNOTATED"] = date.today().isoformat()
         local_ann = pd.concat([local_ann, new_ann], ignore_index=True)
         local_ann.drop_duplicates(subset=merge_cols, keep="first", inplace=True)
