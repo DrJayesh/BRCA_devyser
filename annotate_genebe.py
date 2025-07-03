@@ -82,7 +82,6 @@ def annotate_folder(input_folder: str) -> None:
     if not local_ann.empty:
         annotated_unique = unique_vars.merge(local_ann, on=merge_cols, how="left")
         to_annotate = annotated_unique[annotated_unique.isna().any(axis=1)][merge_cols]
-        annotated_unique = annotated_unique.dropna(axis=0, subset=local_ann.columns.difference(merge_cols), how="all")
 
     if not to_annotate.empty:
         new_ann = gnb.annotate(
